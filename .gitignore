@@ -50,3 +50,4 @@ coverage/
 # Vouchers processados (arquivos grandes)
 Vaucher_Feitos/
 Vauchers/
+.vercel

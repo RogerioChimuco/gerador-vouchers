@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Temporary files
+temp_output/
+temp_csv/
+tmp/
+uploads/
+qrcodes/
+output/
+
+# Archives
+*.rar
+*.zip
+*.7z
+
+# Development
+.git/
+.vscode/
+*.log
+
+# Large files
+Vaucher_Feitos/
+Vaucher_Feitos.rar
+Vauchers/
+
+# OS files
+.DS_Store
+Thumbs.db

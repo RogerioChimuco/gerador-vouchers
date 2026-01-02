@@ -7,6 +7,7 @@ const QRCode = require('qrcode');
 const fs = require('fs');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const compression = require('compression');
 const PDFKit = require('pdfkit');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 // const { parse } = require('csv-parse/sync'); // Not used, csv-parser handles it
@@ -18,31 +19,59 @@ const JSZip = require('jszip');
 const port = process.env.PORT || 3000;
 const app = express();
 
+// Compressão gzip/brotli para todas as respostas
+app.use(compression({
+    level: 6,
+    threshold: 1024,
+    filter: (req, res) => {
+        if (req.headers['x-no-compression']) return false;
+        return compression.filter(req, res);
+    }
+}));
+// Detectar ambiente Vercel (filesystem read-only exceto /tmp)
+const IS_VERCEL = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
+const TEMP_BASE = IS_VERCEL ? '/tmp' : __dirname;
+
 // Configurações de caminho
 const FONT_PATH_BOLD = path.join(__dirname, 'public', 'fonts', 'Poppins', 'Poppins-Bold.ttf');
 const FONT_PATH_REGULAR = path.join(__dirname, 'public', 'fonts', 'Poppins', 'Poppins-Regular.ttf');
-const QRCODE_BASE_DIR = path.join(__dirname, 'qrcodes');
+const QRCODE_BASE_DIR = path.join(TEMP_BASE, 'qrcodes');
 const PREVIEW_DIR = path.join(__dirname, 'public', 'previews');
 const TEMPLATES_CONVITE_DIR = path.join(__dirname, 'public', 'convite_pdf');
-const TEMP_OUTPUT_DIR = path.join(__dirname, 'temp_output');
+const TEMP_OUTPUT_DIR = path.join(TEMP_BASE, 'temp_output');
 
+// Posições base dos 3 vouchers por página [x, yBase, size, offset]
+// yBase controla a altura - valores maiores = mais acima
 const POSICOES = [
     [441, 612, 70, 30],
     [441, 400, 70, 30],
     [441, 187, 70, 30]
 ];
 
+// Ajuste vertical para subir todos os elementos (em pixels)
+// Valor positivo = sobe, negativo = desce
+const VERTICAL_OFFSET_ADJUSTMENT = 50;
+
 // Middlewares
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
+
+// Ficheiros estáticos com cache agressivo (imagens, fonts, etc.)
 app.use(express.static(path.join(__dirname, 'public'), {
-    maxAge: '1h',
-    etag: true
+    maxAge: '7d',  // Cache por 7 dias
+    etag: true,
+    immutable: true,
+    setHeaders: (res, filePath) => {
+        // Cache mais longo para imagens e fonts
+        if (filePath.match(/\.(png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$/)) {
+            res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+        }
+    }
 }));
 
-// Diretório de downloads com headers especiais
-const DOWNLOADS_DIR = path.join(__dirname, 'public', 'downloads');
+// Diretório de downloads com headers especiais (dinâmico para Vercel)
+const DOWNLOADS_DIR = IS_VERCEL ? '/tmp/downloads' : path.join(__dirname, 'public', 'downloads');
 app.use('/downloads', express.static(DOWNLOADS_DIR, {
     setHeaders: (res, filePath) => {
         res.set('Content-Disposition', `attachment; filename="${path.basename(filePath)}"`);
@@ -273,7 +302,7 @@ app.get('/', async (req, res) => {
         return `
         <div class="template-preview ${template === defaultTemplate ? 'selected' : ''}"
             onclick="selectTemplate('${template}')" title="${template}">
-            <img src="${previewFileUrl}" alt="Preview de ${template}" style="width: 100%;">
+            <img src="${previewFileUrl}" alt="Preview de ${template}" loading="lazy" decoding="async" style="width: 100%;">
         </div>
         `;
     }).join('');
@@ -481,10 +510,15 @@ app.use(express.static(path.join(__dirname, 'public'), {
     index: false
 }));
 
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
+const UPLOAD_DIR = path.join(TEMP_BASE, 'uploads');
+const DOWNLOADS_OUTPUT_DIR = IS_VERCEL ? path.join('/tmp', 'downloads') : path.join(__dirname, 'public', 'downloads');
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
+        // Garantir que o diretório existe
+        if (!fs.existsSync(UPLOAD_DIR)) {
+            fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+        }
         cb(null, UPLOAD_DIR);
     },
     filename: (req, file, cb) => {
@@ -497,11 +531,26 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 const setupDirectories = async () => {
-    await fsPromises.mkdir(UPLOAD_DIR, { recursive: true });
-    await fsPromises.mkdir(QRCODE_BASE_DIR, { recursive: true });
-    await fsPromises.mkdir(path.join(__dirname, 'output'), { recursive: true });
-    await fsPromises.mkdir(path.join(__dirname, 'public', 'downloads'), { recursive: true });
-    await fsPromises.mkdir(PREVIEW_DIR, { recursive: true });
+    const dirs = [
+        UPLOAD_DIR,
+        QRCODE_BASE_DIR,
+        TEMP_OUTPUT_DIR,
+        DOWNLOADS_OUTPUT_DIR
+    ];
+    
+    // Em ambiente local, criar também diretórios não-temp
+    if (!IS_VERCEL) {
+        dirs.push(path.join(__dirname, 'output'));
+        dirs.push(PREVIEW_DIR);
+    }
+    
+    for (const dir of dirs) {
+        try {
+            await fsPromises.mkdir(dir, { recursive: true });
+        } catch (e) {
+            console.log(`Aviso: Não foi possível criar ${dir}: ${e.message}`);
+        }
+    }
 };
 
 
@@ -558,7 +607,7 @@ async function cleanOldFiles() {
     const directoriesToClean = [
         UPLOAD_DIR,
         QRCODE_BASE_DIR,
-        path.join(__dirname, 'public', 'downloads')
+        DOWNLOADS_DIR
     ];
     for (const dir of directoriesToClean) {
         await cleanDirectory(dir);
@@ -622,7 +671,10 @@ app.post('/process-csv', upload.single('csvFile'), async (req, res) => {
         const csvBaseName = path.parse(req.file.originalname).name;
         const dateStr = new Date().toISOString().split('T')[0];
         const pdfFilename = `${csvBaseName}_${dateStr}.pdf`;
-        const outputPath = path.join(__dirname, 'public', 'downloads', pdfFilename);
+        const outputPath = path.join(DOWNLOADS_DIR, pdfFilename);
+        
+        // Garantir que o diretório existe
+        await fsPromises.mkdir(DOWNLOADS_DIR, { recursive: true });
         await fsPromises.writeFile(outputPath, pdfBytes);
 
         // Calcular tamanho do arquivo para exibição
@@ -655,6 +707,9 @@ app.post('/process-csv', upload.single('csvFile'), async (req, res) => {
 // ============================================================
 function generateDownloadPage(pdfFilename, fileSizeDisplay, voucherCount) {
     const encodedFilename = encodeURIComponent(pdfFilename);
+    // Link direto para download - browser ou app de download do utilizador faz o resto
+    const directDownloadUrl = '/downloads/' + encodedFilename;
+    
     return `<!DOCTYPE html>
 <html lang="pt">
 <head>
@@ -663,32 +718,30 @@ function generateDownloadPage(pdfFilename, fileSizeDisplay, voucherCount) {
     <title>PDF Gerado - MS Saúde</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <style>
-        :root { --primary: #164769; --secondary: #3498db; --green: #28a745; --red: #dc3545; --light: #f8f9fa; --radius: 12px; --shadow: 0 10px 40px rgba(0,0,0,0.1); }
+        :root { --primary: #164769; --secondary: #3498db; --green: #28a745; --light: #f8f9fa; --radius: 12px; --shadow: 0 10px 40px rgba(0,0,0,0.1); }
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
         body { min-height: 100vh; display: grid; place-items: center; background: linear-gradient(135deg, #f8f9fa 0%, #e2e6ea 100%); padding: 1rem; }
         .container { background: white; padding: 2.5rem; border-radius: var(--radius); box-shadow: var(--shadow); width: 100%; max-width: 500px; text-align: center; }
         .success-icon { width: 80px; height: 80px; background: var(--green); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem; }
         .success-icon svg { width: 40px; height: 40px; fill: white; }
         h1 { color: var(--primary); margin-bottom: 0.5rem; font-size: 1.5rem; }
-        .file-info { background: var(--light); padding: 1rem; border-radius: 8px; margin: 1.5rem 0; }
+        .subtitle { color: #666; font-size: 0.95rem; margin-bottom: 1.5rem; }
+        .file-info { background: var(--light); padding: 1.25rem; border-radius: 8px; margin: 1.5rem 0; }
         .file-info p { color: #666; font-size: 0.9rem; margin: 0.25rem 0; }
-        .file-info .filename { color: var(--primary); font-weight: 600; word-break: break-all; }
-        .download-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 1rem 2rem; background: var(--green); color: white; font-weight: 600; font-size: 1.1rem; text-decoration: none; border-radius: var(--radius); border: none; cursor: pointer; transition: all 0.3s ease; width: 100%; }
-        .download-btn:hover:not(:disabled) { background: #218838; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(40,167,69,0.4); }
-        .download-btn:disabled { background: #6c757d; cursor: not-allowed; }
-        .download-btn svg { width: 20px; height: 20px; fill: currentColor; }
-        .progress-container { display: none; margin: 1.5rem 0; }
-        .progress-bar { height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
-        .progress-fill { height: 100%; background: linear-gradient(90deg, var(--green), #20c997); width: 0%; transition: width 0.3s ease; }
-        .progress-text { font-size: 0.85rem; color: #666; margin-top: 0.5rem; }
-        .status { margin-top: 1rem; padding: 0.75rem; border-radius: 8px; font-size: 0.9rem; display: none; }
-        .status.success { background: #d4edda; color: #155724; display: block; }
-        .status.error { background: #f8d7da; color: #721c24; display: block; }
-        .secondary-btn { display: inline-block; margin-top: 1rem; padding: 0.75rem 1.5rem; background: var(--secondary); color: white; text-decoration: none; border-radius: 8px; font-weight: 500; transition: all 0.3s ease; }
+        .file-info .filename { color: var(--primary); font-weight: 600; word-break: break-all; font-size: 1rem; }
+        .download-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 1rem 2rem; background: var(--green); color: white; font-weight: 600; font-size: 1.1rem; text-decoration: none; border-radius: var(--radius); transition: all 0.3s ease; width: 100%; margin-bottom: 1rem; }
+        .download-btn:hover { background: #218838; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(40,167,69,0.4); }
+        .download-btn svg { width: 24px; height: 24px; fill: currentColor; }
+        .copy-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0.75rem 1.5rem; background: #6c757d; color: white; font-weight: 500; font-size: 0.9rem; text-decoration: none; border-radius: 8px; border: none; cursor: pointer; transition: all 0.3s ease; width: 100%; margin-bottom: 1rem; }
+        .copy-btn:hover { background: #5a6268; }
+        .copy-btn svg { width: 18px; height: 18px; fill: currentColor; }
+        .secondary-btn { display: inline-block; padding: 0.75rem 1.5rem; background: var(--secondary); color: white; text-decoration: none; border-radius: 8px; font-weight: 500; transition: all 0.3s ease; }
         .secondary-btn:hover { background: #2980b9; }
         .logo { width: 150px; margin-bottom: 1.5rem; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .spinner { animation: spin 1s linear infinite; }
+        .info-box { background: #e7f3ff; border: 1px solid #b6d4fe; color: #0c5460; padding: 1rem; border-radius: 8px; margin: 1rem 0; font-size: 0.85rem; text-align: left; }
+        .info-box strong { display: block; margin-bottom: 0.5rem; }
+        .copied-toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #28a745; color: white; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 500; opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
+        .copied-toast.show { opacity: 1; }
     </style>
 </head>
 <body>
@@ -698,131 +751,55 @@ function generateDownloadPage(pdfFilename, fileSizeDisplay, voucherCount) {
             <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
         </div>
         <h1>Vouchers Gerados com Sucesso!</h1>
+        <p class="subtitle">O seu PDF está pronto para download</p>
+        
         <div class="file-info">
             <p class="filename">${pdfFilename}</p>
-            <p>Tamanho: ${fileSizeDisplay} • ${voucherCount} voucher(s)</p>
+            <p>📄 Tamanho: ${fileSizeDisplay} • 🎫 ${voucherCount} voucher(s)</p>
         </div>
-        <div class="progress-container" id="progressContainer">
-            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-            <p class="progress-text" id="progressText">Preparando download...</p>
-        </div>
-        <button class="download-btn" id="downloadBtn" onclick="startDownload()">
+        
+        <a href="${directDownloadUrl}" class="download-btn" download="${pdfFilename}">
             <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-            <span id="btnText">Baixar PDF</span>
+            Baixar PDF
+        </a>
+        
+        <button class="copy-btn" onclick="copyLink()">
+            <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+            Copiar Link de Download
         </button>
-        <div class="status" id="statusMsg"></div>
-        <a href="/" class="secondary-btn" id="newBtn" style="display:none;">Gerar Novos Vouchers</a>
+        
+        <div class="info-box">
+            <strong>💡 Dica:</strong>
+            Clique com o botão direito no botão "Baixar PDF" e selecione "Guardar link como..." para escolher onde guardar o ficheiro, ou use o seu gestor de downloads preferido.
+        </div>
+        
+        <a href="/" class="secondary-btn">Gerar Novos Vouchers</a>
     </div>
+    
+    <div class="copied-toast" id="toast">✓ Link copiado!</div>
+    
     <script>
-        const filename = '${encodedFilename}';
-        const downloadUrl = '/api/download/' + filename;
-        let downloadAttempts = 0;
-        const maxAttempts = 3;
+        const downloadUrl = window.location.origin + '${directDownloadUrl}';
         
-        async function startDownload() {
-            const btn = document.getElementById('downloadBtn');
-            const btnText = document.getElementById('btnText');
-            const progress = document.getElementById('progressContainer');
-            const progressFill = document.getElementById('progressFill');
-            const progressText = document.getElementById('progressText');
-            const status = document.getElementById('statusMsg');
-            const newBtn = document.getElementById('newBtn');
-            
-            btn.disabled = true;
-            btnText.innerHTML = '<svg class="spinner" viewBox="0 0 24 24" style="width:20px;height:20px;"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" stroke-dasharray="30 70"/></svg> A processar...';
-            progress.style.display = 'block';
-            status.className = 'status';
-            status.style.display = 'none';
-            
-            try {
-                const checkResponse = await fetch('/api/check-file/' + filename);
-                const checkData = await checkResponse.json();
+        function copyLink() {
+            navigator.clipboard.writeText(downloadUrl).then(() => {
+                const toast = document.getElementById('toast');
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 2000);
+            }).catch(() => {
+                // Fallback para browsers antigos
+                const textarea = document.createElement('textarea');
+                textarea.value = downloadUrl;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
                 
-                if (!checkData.exists) {
-                    throw new Error('O ficheiro não foi encontrado no servidor.');
-                }
-                
-                progressText.textContent = 'A iniciar download...';
-                progressFill.style.width = '10%';
-                
-                const response = await fetch(downloadUrl);
-                
-                if (!response.ok) {
-                    throw new Error('Erro HTTP: ' + response.status);
-                }
-                
-                const contentLength = response.headers.get('Content-Length');
-                const total = parseInt(contentLength, 10);
-                
-                progressText.textContent = 'A transferir...';
-                progressFill.style.width = '30%';
-                
-                const reader = response.body.getReader();
-                const chunks = [];
-                let received = 0;
-                
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    
-                    chunks.push(value);
-                    received += value.length;
-                    
-                    if (total) {
-                        const percent = Math.round((received / total) * 100);
-                        progressFill.style.width = Math.max(30, percent) + '%';
-                        progressText.textContent = 'A transferir... ' + percent + '%';
-                    }
-                }
-                
-                progressFill.style.width = '90%';
-                progressText.textContent = 'A finalizar...';
-                
-                const blob = new Blob(chunks, { type: 'application/pdf' });
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = decodeURIComponent(filename);
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-                
-                progressFill.style.width = '100%';
-                progressText.textContent = 'Download concluído!';
-                
-                status.className = 'status success';
-                status.textContent = '✓ Download realizado com sucesso!';
-                
-                btnText.textContent = '✓ Concluído';
-                newBtn.style.display = 'inline-block';
-                
-                downloadAttempts = 0;
-                
-            } catch (error) {
-                console.error('Erro no download:', error);
-                downloadAttempts++;
-                
-                if (downloadAttempts < maxAttempts) {
-                    status.className = 'status error';
-                    status.textContent = 'Erro: ' + error.message + '. A tentar novamente (' + downloadAttempts + '/' + maxAttempts + ')...';
-                    
-                    setTimeout(function() {
-                        btn.disabled = false;
-                        btnText.textContent = 'Tentar Novamente';
-                    }, 2000);
-                } else {
-                    status.className = 'status error';
-                    status.innerHTML = '<strong>Erro persistente no download.</strong><br><small>' + error.message + '</small><br><a href="' + downloadUrl + '" download style="color:inherit;text-decoration:underline;">Clique aqui para download direto</a>';
-                    btn.disabled = false;
-                    btnText.textContent = 'Tentar Novamente';
-                }
-                
-                progress.style.display = 'none';
-            }
+                const toast = document.getElementById('toast');
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 2000);
+            });
         }
-        
-        setTimeout(startDownload, 500);
     </script>
 </body>
 </html>`;
@@ -895,48 +872,60 @@ async function createVoucherPages(templatePath, vouchers, qrCodeSubFolder) {
 
             const [code, expirationDate] = voucher;
             const [x, yBase, size, offset] = POSICOES[idx];
+            
+            // Aplicar ajuste vertical global (subir elementos)
+            const adjustedYBase = yBase + VERTICAL_OFFSET_ADJUSTMENT;
+            
             const fileName = sanitize(`qrcode_${code}_${expirationDate}.png`);
             const qrCodePath = path.join(QRCODE_BASE_DIR, qrCodeSubFolder, fileName);
 
             if (!fs.existsSync(qrCodePath)) {
                 console.error('QR code ausente em:', qrCodePath);
                 overlayDocKit.font('Poppins-Regular').fontSize(8).fillColor('red');
-                overlayDocKit.text('QR Code N/A', x, height - yBase - size / 2, { width: size, align: 'center' });
+                overlayDocKit.text('QR Code N/A', x, height - adjustedYBase - size / 2, { width: size, align: 'center' });
                 return;
             }
 
-            overlayDocKit.image(qrCodePath, x, height - yBase - size, {
+            // ========== GRUPO DE ELEMENTOS DO VOUCHER ==========
+            // Posição Y base para todo o grupo (QR + código + data)
+            const groupBaseY = height - adjustedYBase - size;
+            
+            // 1. QR Code
+            overlayDocKit.image(qrCodePath, x, groupBaseY, {
                 width: size,
                 height: size
             });
 
+            // 2. Código do voucher (abaixo do QR)
             overlayDocKit.font('Poppins-Bold').fontSize(9).fillColor('#164769');
             const codeText = code;
             const codeWidth = overlayDocKit.widthOfString(codeText);
             const codeX = x + (size / 2) - (codeWidth / 2);
-            const codeY = height - yBase - size - offset; 
-            overlayDocKit.text(codeText, codeX, codeY + 120); 
+            const codeY = groupBaseY + size + 19; // 20px  abaixo do QR
+            overlayDocKit.text(codeText, codeX, codeY);
 
+            // 3. Data de validade (abaixo do código)
             overlayDocKit.font('Poppins-Regular').fontSize(6).fillColor('#164769');
             const dateText = `*ativação válida até ${expirationDate.trim()}`;
             const dateWidth = overlayDocKit.widthOfString(dateText);
-            const dateX = (x - 27) + (size / 2) - (dateWidth / 2); 
-            const dateY = codeY + 170; 
+            const dateX = x + (size / 2) - (dateWidth / 2);
+            const dateY = codeY + 53; // 12px abaixo do código
             
-            const padding = 2;
-            const rectHeight = 15; 
-            const verticalOffset = 10; 
-
+            // Fundo branco para a data
+            const padding = 3;
+            const rectHeight = 10;
             overlayDocKit.rect(
                 dateX - padding,
-                dateY - rectHeight + 4 + verticalOffset, 
+                dateY - 2,
                 dateWidth + (padding * 2),
                 rectHeight
             )
-            .fillColor('white') 
+            .fillColor('white')
             .fill()
-            .fillColor('#164769'); 
-            overlayDocKit.text(dateText, dateX, dateY, { width: dateWidth + 50, align: 'center' });
+            .fillColor('#164769');
+            
+            overlayDocKit.text(dateText, dateX, dateY);
+            // ========== FIM DO GRUPO ==========
         });
 
         const overlayBytes = await new Promise((resolvePromise, rejectPromise) => {
@@ -1321,17 +1310,40 @@ const startServer = async () => {
     try {
         await setupDirectories();
         await cleanOldFiles();
-        app.listen(port, () => {
-            console.log(`Servidor rodando em http://localhost:${port}`);
-            console.log(`QR Codes serão gerados em: ${QRCODE_BASE_DIR}`);
-            console.log(`PDFs para download em: ${path.join(__dirname, 'public', 'downloads')}`);
-            console.log(`Previews de templates em: ${PREVIEW_DIR}`);
-            console.log(`Usando DEFAULT_PROMOTOR_ID: ${DEFAULT_PROMOTOR_ID || '(nenhum)'}`);
-        });
+        
+        // Vercel usa serverless, não precisa de listen()
+        if (process.env.VERCEL) {
+            console.log('Running on Vercel - serverless mode');
+        } else {
+            app.listen(port, () => {
+                console.log(`Servidor rodando em http://localhost:${port}`);
+                console.log(`QR Codes serão gerados em: ${QRCODE_BASE_DIR}`);
+                console.log(`PDFs para download em: ${path.join(__dirname, 'public', 'downloads')}`);
+                console.log(`Previews de templates em: ${PREVIEW_DIR}`);
+                console.log(`Usando DEFAULT_PROMOTOR_ID: ${DEFAULT_PROMOTOR_ID || '(nenhum)'}`);
+            });
+        }
     } catch (error) {
         console.error('Erro ao iniciar servidor:', error);
-        process.exit(1);
+        if (!process.env.VERCEL) {
+            process.exit(1);
+        }
     }
 };
 
-startServer();
+// Inicializar diretórios (síncrono para Vercel)
+(async () => {
+    try {
+        await setupDirectories();
+    } catch (e) {
+        console.error('Setup error:', e);
+    }
+})();
+
+// Para ambiente local
+if (!process.env.VERCEL) {
+    startServer();
+}
+
+// Exportar para Vercel serverless
+module.exports = app;
