@@ -1,35 +1,69 @@
 # 🎫 Gerador de Vouchers - MS Saúde
 
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-green.svg)](https://nodejs.org/)
-[![Express](https://img.shields.io/badge/Express-4.x-blue.svg)](https://expressjs.com/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+<p align="center">
+  <img src="public/images/logo.svg" alt="MS Saúde Logo" width="200">
+</p>
 
-Sistema web para geração automática de vouchers e convites em PDF com QR Codes para a Misericórdias Saúde.
+<p align="center">
+  <strong>Sistema profissional para geração de vouchers e convites com QR Codes</strong>
+</p>
 
-![Screenshot](public/images/logo.svg)
+<p align="center">
+  <a href="#-funcionalidades">Funcionalidades</a> •
+  <a href="#-instalação">Instalação</a> •
+  <a href="#-uso">Uso</a> •
+  <a href="#-api">API</a> •
+  <a href="#-contribuição">Contribuição</a>
+</p>
 
-## ✨ Funcionalidades
+---
 
-- 📄 **Geração de Vouchers PDF** - Cria PDFs com vouchers personalizados a partir de ficheiros CSV
-- 📱 **QR Codes Automáticos** - Gera QR codes únicos para cada voucher
-- 🎨 **Templates Personalizáveis** - Múltiplos templates de voucher disponíveis
-- 🏷️ **Etiquetas** - Modo especial para impressão de etiquetas (30 por página A4)
-- 💌 **Gerador de Convites** - Sistema separado para geração de convites
+## 📋 Sobre o Projeto
+
+O **Gerador de Vouchers** é uma aplicação web desenvolvida para a MS Saúde que permite a geração em massa de vouchers e convites personalizados com QR Codes. O sistema processa ficheiros CSV e gera PDFs prontos para impressão.
+
+### ✨ Principais Características
+
+- 🎨 **Múltiplos Templates** - Escolha entre diversos modelos de vouchers
+- 📱 **QR Codes Dinâmicos** - Cada voucher recebe um QR code único com URL de adesão
+- 📊 **Processamento em Lote** - Processe centenas de vouchers de uma vez
 - 📥 **Download Robusto** - Sistema de download com progresso e retry automático
-- 🔄 **Auto-detecção CSV** - Suporta separadores vírgula (,) e ponto-e-vírgula (;)
+- 🏷️ **Etiquetas** - Gere folhas de etiquetas (30 por página A4)
+- 💼 **Promotores** - Associe vouchers a promotores específicos (opcional)
 
-## 🚀 Início Rápido
+## 🚀 Funcionalidades
+
+### Gerador de Vouchers
+- Upload de ficheiro CSV com dados dos vouchers
+- Seleção de template visual
+- Campo opcional para ID do promotor
+- Geração de PDF com QR codes incorporados
+- Download automático com barra de progresso
+
+### Gerador de Convites
+- Templates específicos para convites
+- Geração de múltiplos PDFs
+- Download em formato ZIP
+
+### API REST
+- `/api/download/:filename` - Download de ficheiros com suporte a resumable downloads
+- `/api/check-file/:filename` - Verificar existência de ficheiros
+- `/api/list-downloads` - Listar ficheiros disponíveis
+
+## 📦 Instalação
 
 ### Pré-requisitos
 
 - Node.js 18+ 
 - npm ou yarn
 
-### Instalação
+### Passos
 
 ```bash
 # Clonar o repositório
-git clone https://github.com/seu-usuario/gerador-vouchers.git
+git clone https://github.com/RogerioChimuco/gerador-vouchers.git
+
+# Entrar no diretório
 cd gerador-vouchers
 
 # Instalar dependências
@@ -41,120 +75,116 @@ npm start
 
 O servidor estará disponível em `http://localhost:3000`
 
-### Scripts Disponíveis
+## 💻 Uso
 
-```bash
-npm start     # Inicia o servidor em produção
-npm run dev   # Inicia em modo de desenvolvimento (com watch)
-```
-
-## 📖 Como Usar
-
-### 1. Geração de Vouchers
-
-1. Acesse `http://localhost:3000`
-2. Selecione um template de voucher
-3. Faça upload do ficheiro CSV
-4. Clique em "Gerar Vouchers"
-5. O download iniciará automaticamente
-
-### 2. Formato do CSV
+### 1. Preparar o CSV
 
 O ficheiro CSV deve conter as seguintes colunas:
-
-| Coluna | Descrição | Obrigatório |
-|--------|-----------|-------------|
-| `code` | Código único do voucher | ✅ |
-| `expiration_date` | Data de expiração (YYYY-MM-DD) | ✅ |
-| `public_id` | ID do plano | ❌ |
-| `id_partner` | ID do parceiro | ❌ |
+- `code` - Código único do voucher
+- `expiration_date` - Data de expiração (formato: YYYY-MM-DD)
+- `public_id` - ID público do plano (opcional)
+- `id_partner` - ID do parceiro (opcional)
 
 **Exemplo:**
 ```csv
 code;expiration_date;public_id;id_partner
-ABC123;2025-12-31;plan-001;partner-001
-DEF456;2025-12-31;plan-001;partner-001
+ABC123;2025-12-31;plano-001;partner-123
+DEF456;2025-12-31;plano-001;partner-123
 ```
 
-### 3. Geração de Convites
+> 💡 O sistema detecta automaticamente o separador (vírgula ou ponto-e-vírgula)
 
-1. Acesse `http://localhost:3000/gerador-convites`
-2. Selecione um modelo de convite
-3. Faça upload do ficheiro CSV com os códigos
-4. Receba um ficheiro ZIP com todos os convites
+### 2. Gerar Vouchers
+
+1. Acesse `http://localhost:3000`
+2. Selecione um template
+3. (Opcional) Insira o ID do promotor
+4. Faça upload do ficheiro CSV
+5. Clique em "Gerar Vouchers"
+6. O download iniciará automaticamente
+
+### 3. Estrutura do QR Code
+
+O QR Code gerado contém uma URL no formato:
+```
+https://www.misericordiassaude.pt/aderir?plano={public_id}&voucher={code}&parceiro={id_partner}&promotor={promotor_id}
+```
 
 ## 🔧 Configuração
 
 ### Variáveis de Ambiente
 
-| Variável | Descrição | Padrão |
-|----------|-----------|--------|
-| `PORT` | Porta do servidor | `3000` |
+| Variável | Descrição | Default |
+|----------|-----------|---------|
+| `PORT` | Porta do servidor | 3000 |
 
-### Promotor ID
+### Adicionar Novos Templates
 
-Para associar vouchers a um promotor específico, edite o ficheiro `server.js`:
-
-```javascript
-const DEFAULT_PROMOTOR_ID = "seu-promotor-id";
-```
+1. Coloque o ficheiro PDF em `public/voucher_pdf/`
+2. O sistema gerará automaticamente a preview PNG (requer ImageMagick)
+3. Ou coloque manualmente uma imagem PNG em `public/previews/` com o mesmo nome
 
 ## 📁 Estrutura do Projeto
 
 ```
 gerador-vouchers/
-├── server.js              # Servidor principal Express
+├── server.js              # Servidor Express principal
 ├── package.json           # Dependências e scripts
 ├── public/
-│   ├── voucher_pdf/       # Templates de vouchers (.pdf)
-│   ├── convite_pdf/       # Templates de convites (.pdf)
-│   ├── previews/          # Miniaturas dos templates
-│   ├── downloads/         # PDFs gerados (temporário)
-│   ├── images/            # Imagens estáticas
-│   └── fonts/             # Fontes (Poppins)
-├── qrcodes/               # QR codes temporários
-├── uploads/               # CSVs temporários
-└── temp_output/           # Ficheiros temporários
+│   ├── images/           # Imagens estáticas (logo, favicon)
+│   ├── fonts/            # Fontes Poppins
+│   ├── voucher_pdf/      # Templates PDF de vouchers
+│   ├── convite_pdf/      # Templates PDF de convites
+│   ├── previews/         # Miniaturas dos templates
+│   └── downloads/        # PDFs gerados (temporário)
+├── qrcodes/              # QR codes gerados (temporário)
+├── uploads/              # CSVs carregados (temporário)
+└── docs/
+    └── ARCHITECTURE.md   # Documentação da arquitetura
 ```
 
-## 🔌 API Endpoints
+## 🔌 API
 
-### Páginas
+### Download de Ficheiro
+```http
+GET /api/download/:filename
+```
+Suporta Range headers para downloads resumíveis.
 
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| GET | `/` | Página principal (Gerador de Vouchers) |
-| GET | `/gerador-convites` | Gerador de Convites |
+### Verificar Ficheiro
+```http
+GET /api/check-file/:filename
+```
+**Resposta:**
+```json
+{
+  "exists": true,
+  "size": 1234567,
+  "created": "2025-01-02T12:00:00Z"
+}
+```
 
-### Processamento
+### Listar Downloads
+```http
+GET /api/list-downloads
+```
+**Resposta:**
+```json
+{
+  "files": [
+    { "name": "vouchers.pdf", "size": 1234567, "created": "2025-01-02T12:00:00Z" }
+  ]
+}
+```
 
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| POST | `/process-csv` | Processa CSV e gera vouchers |
-| POST | `/process-invites` | Processa CSV e gera convites (ZIP) |
+## 🛠️ Stack Tecnológica
 
-### API de Downloads
-
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| GET | `/api/download/:filename` | Download com streaming |
-| GET | `/api/check-file/:filename` | Verifica existência do ficheiro |
-| GET | `/api/list-downloads` | Lista ficheiros disponíveis |
-
-## 🛠️ Tecnologias
-
-- **Backend**: Node.js, Express.js
-- **PDF**: pdf-lib, PDFKit
-- **QR Code**: qrcode
-- **Upload**: Multer
-- **Compressão**: Archiver, JSZip
-- **Parsing**: csv-parser
-
-## 📋 Requisitos do Sistema
-
-- Node.js 18.0.0 ou superior
-- 512MB RAM mínimo (recomendado 1GB+ para ficheiros grandes)
-- Espaço em disco para ficheiros temporários
+- **Runtime:** Node.js
+- **Framework:** Express.js
+- **PDF:** pdf-lib, PDFKit
+- **QR Codes:** qrcode
+- **Upload:** Multer
+- **Compressão:** Archiver
 
 ## 🤝 Contribuição
 
@@ -168,11 +198,12 @@ Este projeto está licenciado sob a Licença MIT - veja o ficheiro [LICENSE](LIC
 
 - **MS Saúde** - Desenvolvimento inicial
 
-## 🙏 Agradecimentos
+## 📞 Suporte
 
-- Misericórdias Saúde pelo suporte
-- Comunidade open-source pelas bibliotecas utilizadas
+Para suporte, entre em contacto através do email: suporte@misericordiassaude.pt
 
 ---
 
-Feito com ❤️ para MS Saúde
+<p align="center">
+  Desenvolvido com ❤️ para <strong>MS Saúde</strong>
+</p>

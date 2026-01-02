@@ -430,9 +430,13 @@ app.get('/', async (req, res) => {
                     ${previews}
                 </div>
                 
+                <h4>ID do Promotor (opcional):</h4>
+                <input type="text" name="promotorId" id="promotorId" placeholder="Ex: 123 ou deixe vazio" style="width: 100%; padding: 0.8rem; border: 2px solid #ddd; border-radius: var(--radius); margin-bottom: 1rem; font-size: 1rem;">
+                
                 <h4>Ficheiro CSV:</h4>
                 <form action="/process-csv" method="post" enctype="multipart/form-data">
                     <input type="hidden" name="template" id="selectedTemplate" value="${defaultTemplate}">
+                    <input type="hidden" name="promotorId" id="promotorIdHidden" value="">
                     <input type="file" name="csvFile" accept=".csv" required>
                     <button type="submit">Gerar Vouchers</button>
                 </form>
@@ -456,6 +460,15 @@ app.get('/', async (req, res) => {
                     const defaultSelectedElement = document.querySelector(\`[onclick="selectTemplate('${defaultTemplate}')"]\`);
                      if (defaultSelectedElement) {
                         defaultSelectedElement.classList.add('selected');
+                    }
+                    
+                    // Sincronizar campo promotor com o formulário
+                    const promotorInput = document.getElementById('promotorId');
+                    const promotorHidden = document.getElementById('promotorIdHidden');
+                    if (promotorInput && promotorHidden) {
+                        promotorInput.addEventListener('input', () => {
+                            promotorHidden.value = promotorInput.value.trim();
+                        });
                     }
                 });
             </script>
@@ -563,7 +576,8 @@ app.post('/process-csv', upload.single('csvFile'), async (req, res) => {
         }
         const records = await processCSV(req.file.path);
 
-        const selectedTemplate = req.body.template || 'template1.pdf'; 
+        const selectedTemplate = req.body.template || 'template1.pdf';
+        const promotorId = req.body.promotorId ? req.body.promotorId.trim() : '';
 
         folderName = createFolderName(req.file.originalname); // Assign here
         const qrCodeDir = path.join(QRCODE_BASE_DIR, folderName);
@@ -579,7 +593,8 @@ app.post('/process-csv', upload.single('csvFile'), async (req, res) => {
             const qrCodePath = path.join(qrCodeDir, fileName);
             
             // Build URL for QR code using the new function
-            const qrDataUrl = buildQrCodeUrl(row, DEFAULT_PROMOTOR_ID);
+            // Usa o promotorId do formulário ou o DEFAULT_PROMOTOR_ID como fallback
+            const qrDataUrl = buildQrCodeUrl(row, promotorId || DEFAULT_PROMOTOR_ID);
             // console.log(`Gerando QR Code para URL: ${qrDataUrl}`); // Debugging
             
             await generateQRCode(qrDataUrl, qrCodePath);
