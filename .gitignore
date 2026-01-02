@@ -1,0 +1,52 @@
+# Dependências e Logs
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Ficheiros temporários
+uploads/
+qrcodes/
+temp_output/
+temp_csv/
+tmp/
+output/
+
+# Downloads gerados
+public/downloads/*.pdf
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build
+dist/
+build/
+
+# Ficheiros de teste
+*.test.js
+coverage/
+
+# Backups
+*.bak
+*.backup
+
+# Arquivos comprimidos
+*.zip
+*.rar
+*.7z
+
+# Vouchers processados (arquivos grandes)
+Vaucher_Feitos/
+Vauchers/
