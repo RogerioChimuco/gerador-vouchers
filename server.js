@@ -274,21 +274,24 @@ app.get('/', async (req, res) => {
 
     const previews = templates.map(template => {
         const previewFilenameBase = template.replace(/\.pdf$/i, '');
-        const previewFilename = `${previewFilenameBase}.png`;
-        const previewFilePath = path.join(PREVIEW_DIR, previewFilename);
-        let previewFileUrl = `/previews/${encodeURIComponent(previewFilename)}`;
-
-        if (template === 'etiqueta.pdf') {
-            const etiquetaPreviewPath = path.join(PREVIEW_DIR, 'etiqueta.png');
-            if (!fs.existsSync(etiquetaPreviewPath)) {
-                console.warn(`Preview image 'etiqueta.png' not found in ${PREVIEW_DIR}. Please create one.`);
-            }
-            previewFileUrl = '/previews/etiqueta.png'; 
-        } else if (!fs.existsSync(previewFilePath)) {
+        
+        // Preferir WebP se existir, senão usar PNG
+        const webpFilename = `${previewFilenameBase}.webp`;
+        const pngFilename = `${previewFilenameBase}.png`;
+        const webpPath = path.join(PREVIEW_DIR, webpFilename);
+        const pngPath = path.join(PREVIEW_DIR, pngFilename);
+        
+        let previewFileUrl;
+        if (fs.existsSync(webpPath)) {
+            previewFileUrl = `/previews/${encodeURIComponent(webpFilename)}`;
+        } else if (fs.existsSync(pngPath)) {
+            previewFileUrl = `/previews/${encodeURIComponent(pngFilename)}`;
+        } else {
+            // Tentar gerar preview PNG se não existir
             try {
                 const inputPath = path.join(templatesDir, template);
                 if (fs.existsSync(inputPath)) { 
-                    const command = `magick -density 150 "${inputPath}[0]" -quality 90 "${previewFilePath}"`;
+                    const command = `magick -density 150 "${inputPath}[0]" -quality 90 "${pngPath}"`;
                     execSync(command);
                     console.log(`Miniatura gerada para ${template}`);
                 } else {
@@ -297,6 +300,7 @@ app.get('/', async (req, res) => {
             } catch (error) {
                 console.error(`Erro ao gerar miniatura para ${template}:`, error);
             }
+            previewFileUrl = `/previews/${encodeURIComponent(pngFilename)}`;
         }
 
         // Primeira imagem (LCP) não deve ter lazy loading
@@ -312,8 +316,10 @@ app.get('/', async (req, res) => {
         `;
     }).join('');
 
-    // URL da primeira imagem para preload (LCP)
-    const firstPreviewUrl = '/previews/etiqueta.png';
+    // URL da primeira imagem para preload (LCP) - preferir WebP se existir
+    const firstPreviewWebP = path.join(PREVIEW_DIR, 'etiqueta.webp');
+    const firstPreviewUrl = fs.existsSync(firstPreviewWebP) ? '/previews/etiqueta.webp' : '/previews/etiqueta.png';
+    const firstPreviewType = firstPreviewUrl.endsWith('.webp') ? 'image/webp' : 'image/png';
 
     res.send(`
         <!DOCTYPE html>
@@ -323,7 +329,7 @@ app.get('/', async (req, res) => {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Gerador de Vouchers - MS Saúde</title>
             <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-            <link rel="preload" as="image" href="${firstPreviewUrl}" fetchpriority="high">
+            <link rel="preload" as="image" href="${firstPreviewUrl}" fetchpriority="high" type="${firstPreviewType}">
             <style>
                 :root {
                     --primary: #164769;
