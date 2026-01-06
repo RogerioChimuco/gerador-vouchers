@@ -59,13 +59,13 @@ app.use(bodyParser.json());
 
 // Ficheiros estáticos com cache agressivo (imagens, fonts, etc.)
 app.use(express.static(path.join(__dirname, 'public'), {
-    maxAge: '7d',  // Cache por 7 dias
+    maxAge: '365d',  // Cache por 1 ano
     etag: true,
     immutable: true,
     setHeaders: (res, filePath) => {
-        // Cache mais longo para imagens e fonts
-        if (filePath.match(/\.(png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$/)) {
-            res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+        // Cache de 1 ano para imagens, fonts e assets estáticos
+        if (filePath.match(/\.(png|jpg|jpeg|gif|svg|webp|avif|woff|woff2|ttf|eot|css|js)$/)) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         }
     }
 }));
@@ -413,6 +413,7 @@ app.get('/', async (req, res) => {
                 }
                 img.logo {
                     width: 200px;
+                    height: auto;
                     margin-bottom: 2rem;
                     display: block;
                     margin-left: auto;
@@ -451,7 +452,7 @@ app.get('/', async (req, res) => {
         </head>
         <body>
             <div class="container">
-                <img src="/images/logo.svg" alt="Logo MS Saúde" class="logo">
+                <img src="/images/logo.svg" alt="Logo MS Saúde" class="logo" fetchpriority="high" decoding="async">
                 <h1>Gerador de Vouchers</h1>
                 
                 <h4>Templates:</h4>
@@ -746,7 +747,7 @@ function generateDownloadPage(pdfFilename, fileSizeDisplay, voucherCount) {
 </head>
 <body>
     <div class="container">
-        <img src="/images/logo.svg" alt="Logo MS Saúde" class="logo">
+        <img src="/images/logo.svg" alt="Logo MS Saúde" class="logo" fetchpriority="high" decoding="async">
         <div class="success-icon">
             <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
         </div>
@@ -1193,7 +1194,7 @@ app.get('/gerador-convites', async (req, res) => {
     const defaultTemplate = templates.length > 0 ? templates[0] : '';
 
     res.send(`
-        <!DOCTYPE html><html lang="pt"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Gerador de Convites</title><script src="https://cdn.tailwindcss.com"></script></head>
+        <!DOCTYPE html><html lang="pt"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Gerador de Convites</title><link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin><link rel="dns-prefetch" href="https://cdn.tailwindcss.com"><script src="https://cdn.tailwindcss.com"></script></head>
         <body class="bg-gradient-to-br from-gray-50 to-gray-200 min-h-screen grid place-items-center p-4 font-sans">
             <div class="bg-white p-6 sm:p-8 rounded-xl shadow-lg w-full max-w-2xl space-y-8">
                 <div class="text-center"><h1 class="text-3xl font-bold text-gray-800">Gerador de Convites</h1><p class="text-gray-500 mt-2">Crie múltiplos convites a partir de um ficheiro CSV.</p></div>
