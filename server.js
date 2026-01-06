@@ -299,10 +299,15 @@ app.get('/', async (req, res) => {
             }
         }
 
+        // Primeira imagem (LCP) não deve ter lazy loading
+        const isFirst = template === templates[0];
+        const loadingAttr = isFirst ? '' : 'loading="lazy"';
+        const priorityAttr = isFirst ? 'fetchpriority="high"' : '';
+        
         return `
         <div class="template-preview ${template === defaultTemplate ? 'selected' : ''}"
             onclick="selectTemplate('${template}')" title="${template}">
-            <img src="${previewFileUrl}" alt="Preview de ${template}" loading="lazy" decoding="async" style="width: 100%;">
+            <img src="${previewFileUrl}" alt="Preview de ${template}" ${loadingAttr} ${priorityAttr} decoding="async" style="width: 100%;">
         </div>
         `;
     }).join('');
