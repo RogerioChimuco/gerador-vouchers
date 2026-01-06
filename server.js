@@ -312,6 +312,9 @@ app.get('/', async (req, res) => {
         `;
     }).join('');
 
+    // URL da primeira imagem para preload (LCP)
+    const firstPreviewUrl = '/previews/etiqueta.png';
+
     res.send(`
         <!DOCTYPE html>
         <html lang="pt">
@@ -320,6 +323,7 @@ app.get('/', async (req, res) => {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Gerador de Vouchers - MS Saúde</title>
             <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+            <link rel="preload" as="image" href="${firstPreviewUrl}" fetchpriority="high">
             <style>
                 :root {
                     --primary: #164769;
