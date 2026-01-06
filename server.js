@@ -439,6 +439,9 @@ app.get('/', async (req, res) => {
                     grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); 
                     gap: 1rem; 
                     margin-bottom: 1rem;
+                    max-height: 120px;
+                    overflow-y: auto;
+                    padding-right: 0.5rem;
                 }
                 .template-preview {
                     border: 2px solid #ddd;
